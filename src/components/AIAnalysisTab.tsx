@@ -29,7 +29,7 @@ const AIAnalysisTab: React.FC = () => {
         const analysis = await analyzeChartImage(base64, file.type);
         setResult(analysis);
       } catch (err) {
-        setError('Failed to analyze image. Please ensure your Gemini API key is configured correctly in the Secrets panel.');
+        setError(err instanceof Error ? err.message : 'Failed to analyze image. Please try again.');
       } finally {
         setAnalyzing(false);
       }

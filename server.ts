@@ -4,6 +4,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
+import dotenv from 'dotenv';
+import { GoogleGenAI } from '@google/genai';
+
+// Load environment variables (no-op if the files are absent, e.g. in production
+// where the platform injects env vars directly).
+dotenv.config({ path: '.env.development.local' });
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +18,11 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Parse JSON bodies (needed for the AI analysis endpoint). Charts can be
+  // large base64 payloads, so raise the default limit.
+  app.use(express.json({ limit: '15mb' }));
 
   // WebSocket Server
   const wss = new WebSocketServer({ server });
@@ -89,6 +100,91 @@ async function startServer() {
     } catch (error) {
       console.error('Intel API Error:', error);
       res.status(500).json({ error: 'Failed to scan knowledge base' });
+    }
+  });
+
+  // AI Chart Analysis (server-side so the Gemini API key is never exposed to the browser)
+  app.post('/api/analyze', async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'AI analysis is not configured. Set GEMINI_API_KEY on the server.' });
+    }
+
+    const { image, mimeType } = req.body || {};
+    if (!image || typeof image !== 'string' || !mimeType || typeof mimeType !== 'string') {
+      return res.status(400).json({ error: 'A base64 "image" and "mimeType" are required.' });
+    }
+
+    // Strip a data URL prefix if present.
+    const base64Data = image.includes(',') ? image.split(',')[1] : image;
+
+    try {
+      // Build knowledge base context by reading the local knowledge directory.
+      let knowledgeContext = '';
+      try {
+        const fs = await import('fs/promises');
+        const knowledgeDir = path.join(process.cwd(), 'knowledge');
+        const files = await fs.readdir(knowledgeDir);
+        for (const file of files) {
+          if (file === 'README.md' || file.startsWith('.')) continue;
+          if (file.endsWith('.txt') || file.endsWith('.md') || file.endsWith('.json')) {
+            const content = await fs.readFile(path.join(knowledgeDir, file), 'utf-8');
+            knowledgeContext += `--- FILE: ${file} ---\n${content.substring(0, 1000)}\n\n`;
+          }
+        }
+      } catch {
+        // Knowledge directory is optional.
+      }
+
+      const prompt = `
+    Analyze this trading chart screenshot with institutional precision.
+
+    ${knowledgeContext ? `Use the following Knowledge Base and Skills to inform your analysis and apply any specific strategies or rules defined there: ${knowledgeContext}` : ''}
+
+    Structure your response as follows:
+
+    # 📊 Institutional Intelligence Report
+
+    ## 🔍 Market Analysis
+    - **Market Structure**: [Identify HH/HL or LH/LL]
+    - **Current Trend Bias**: [Bullish/Bearish/Neutral]
+    - **Session Context**: [Identify current session if possible]
+
+    ## 🛡️ Institutional Footprints
+    - **Order Blocks**: [List key Supply/Demand zones]
+    - **Fair Value Gaps (FVG)**: [Identify imbalances]
+    - **Liquidity Pools**: [Identify Equal Highs/Lows]
+
+    ## 🦄 Unicorn Setup
+    - **Confluence**: [Identify OB + FVG confluence]
+    - **Probability Score**: [1-5 Stars]
+
+    ## 🎯 Execution Strategy
+    - **Entry Zone**: [Price range]
+    - **Stop Loss**: [Price level]
+    - **Take Profit**: [Target levels]
+
+    ## 📝 Analyst Notes
+    [Brief institutional reasoning for the setup]
+
+    Use clean Markdown with professional trading terminology.
+  `;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: {
+          parts: [
+            { text: prompt },
+            { inlineData: { data: base64Data, mimeType } },
+          ],
+        },
+      });
+
+      res.json({ text: response.text });
+    } catch (error) {
+      console.error('AI Analysis Error:', error);
+      res.status(502).json({ error: 'Failed to analyze image.' });
     }
   });
 
@@ -516,13 +612,18 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
+    // SPA fallback for client-side routing. Unknown /api routes should 404
+    // rather than return the HTML shell.
     app.get('*', (req, res) => {
+      if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'Not found' });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
