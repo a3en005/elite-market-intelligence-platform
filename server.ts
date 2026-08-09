@@ -18,7 +18,9 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  const PORT = Number(process.env.PORT) || 3000;
+  const requestedPort = Number(process.env.PORT) || 3000;
+  const fallbackPorts = [3000, 3001, 3002, 3003, 4173, 5173, 8080];
+  const candidatePorts = [...new Set([requestedPort, ...fallbackPorts])];
 
   // Parse JSON bodies (needed for the AI analysis endpoint). Charts can be
   // large base64 payloads, so raise the default limit.
@@ -26,6 +28,14 @@ async function startServer() {
 
   // WebSocket Server
   const wss = new WebSocketServer({ server });
+  // The WebSocketServer re-emits HTTP listen failures; handle it so the
+  // port fallback listener can select the next available port instead of
+  // terminating the process with an unhandled error.
+  wss.on('error', (error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
+      console.error('[v0] WebSocket server error:', error);
+    }
+  });
   const clients = new Set<WebSocket>();
 
   wss.on('connection', (ws) => {
@@ -556,9 +566,36 @@ async function startServer() {
     });
   }
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  const listenOnAvailablePort = (index = 0) => {
+    const port = candidatePorts[index];
+    if (!port) {
+      console.error(`[v0] No available port found. Tried: ${candidatePorts.join(', ')}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const handleError = (error: NodeJS.ErrnoException) => {
+      server.removeListener('error', handleError);
+      if (error.code === 'EADDRINUSE') {
+        console.warn(`[v0] Port ${port} is busy; trying ${candidatePorts[index + 1] ?? 'no further ports'}.`);
+        listenOnAvailablePort(index + 1);
+      } else {
+        console.error(`[v0] Failed to start on port ${port}:`, error);
+        process.exitCode = 1;
+      }
+    };
+
+    server.once('error', handleError);
+    server.listen(port, '0.0.0.0', () => {
+      process.env.PORT = String(port);
+      console.log(`Server running on port ${port}`);
+      if (port !== requestedPort) {
+        console.log(`[v0] Port ${requestedPort} was unavailable. Alternative ports: ${candidatePorts.filter((item) => item !== requestedPort).join(', ')}`);
+      }
+    });
+  };
+
+  listenOnAvailablePort();
 }
 
 startServer();
