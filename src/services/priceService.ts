@@ -7,7 +7,10 @@ const CRYPTO_API = '/api/mkt/crypto';
 async function fetchWithRetry(url: string, retries = 2, delay = 1000): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     try {
-      const response = await fetch(url);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+      const response = await fetch(url, { signal: controller.signal });
+      window.clearTimeout(timeoutId);
       if (response.ok) return response;
       if (response.status === 429) { // Rate limited
         await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
@@ -153,24 +156,51 @@ function getDemoPrice(symbol: string): number {
 }
 
 export function setupPriceWebSocket(onUpdate: (updates: any[]) => void) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
-  const ws = new WebSocket(wsUrl);
+  let stopped = false;
+  let socket: WebSocket | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-  ws.onmessage = (event) => {
+  const poll = async () => {
     try {
-      const message = JSON.parse(event.data);
-      if (message.type === 'PRICE_UPDATE') {
-        onUpdate(message.data);
-      }
-    } catch (e) {
-      console.error('WS Message Error:', e);
+      const prices = await fetchPrices();
+      if (stopped) return;
+      onUpdate(Object.values(prices).filter((item) => item.isLive).map((item) => ({
+        symbol: item.symbol,
+        price: item.price,
+        change: item.change24h,
+        timestamp: Date.now(),
+      })));
+    } catch (error) {
+      console.warn('[v0] Price polling failed:', error);
     }
   };
 
-  ws.onclose = () => {
-    setTimeout(() => setupPriceWebSocket(onUpdate), 5000);
+  const startPolling = () => {
+    if (!pollTimer) pollTimer = setInterval(poll, 15_000);
   };
 
-  return ws;
+  try {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    socket = new WebSocket(`${protocol}//${window.location.host}`);
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'PRICE_UPDATE') onUpdate(message.data);
+      } catch (error) {
+        console.warn('[v0] Invalid price update:', error);
+      }
+    };
+    socket.onerror = startPolling;
+    socket.onclose = startPolling;
+  } catch {
+    startPolling();
+  }
+
+  return {
+    close() {
+      stopped = true;
+      if (pollTimer) clearInterval(pollTimer);
+      socket?.close();
+    },
+  };
 }

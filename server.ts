@@ -327,6 +327,10 @@ async function startServer() {
   // Historical Data Endpoint
   app.get('/api/mkt/history/:symbol', async (req, res) => {
     const { symbol } = req.params;
+    const supportedSymbols = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'USDCHF', 'AUDUSD', 'NZDUSD', 'XAUUSD', 'XAGUSD', 'XPTUSD', 'XPDUSD', 'US30', 'NAS100', 'SPX500', 'UK100', 'GER40', 'FRA40', 'HK50', 'AUS200', 'JPN225', 'USOIL', 'UKOIL', 'NATGAS', 'BTCUSD', 'ETHUSD', 'BNBUSD', 'XRPUSD', 'SOLUSD', 'ADAUSD', 'DOTUSD', 'MATICUSD', 'LINKUSD', 'AVAXUSD']);
+    if (!/^[A-Z0-9]{3,12}$/.test(symbol) || !supportedSymbols.has(symbol)) {
+      return res.status(400).json({ error: 'Unsupported history symbol', data: [] });
+    }
     const isCrypto = ['BTCUSD', 'ETHUSD', 'BNBUSD', 'XRPUSD', 'SOLUSD', 'ADAUSD', 'DOTUSD', 'MATICUSD', 'LINKUSD', 'AVAXUSD'].includes(symbol);
     
     try {

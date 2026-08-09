@@ -168,6 +168,45 @@ export async function getCryptoTickers(): Promise<Record<string, { usd: number; 
 
 // Read text-based files from the local knowledge directory. Returns a combined
 // context string (used by the AI analysis endpoint).
+const HISTORY_CRYPTO_SYMBOLS = new Set(['BTCUSD', 'ETHUSD', 'BNBUSD', 'XRPUSD', 'SOLUSD', 'ADAUSD', 'DOTUSD', 'MATICUSD', 'LINKUSD', 'AVAXUSD']);
+const HISTORY_OANDA_MAP: Record<string, string> = {
+  EURUSD: 'EUR_USD', GBPUSD: 'GBP_USD', USDJPY: 'USD_JPY', USDCAD: 'USD_CAD', USDCHF: 'USD_CHF',
+  AUDUSD: 'AUD_USD', NZDUSD: 'NZD_USD', XAUUSD: 'XAU_USD', XAGUSD: 'XAG_USD', XPTUSD: 'XPT_USD',
+  XPDUSD: 'XPD_USD', US30: 'US30_USD', NAS100: 'NAS100_USD', SPX500: 'SPX500_USD', UK100: 'UK100_GBP',
+  GER40: 'DE30_EUR', FRA40: 'FR40_EUR', HK50: 'HK33_HKD', AUS200: 'AU200_AUD', JPN225: 'JP225_USD',
+  USOIL: 'WTICO_USD', UKOIL: 'BCO_USD', NATGAS: 'NATGAS_USD',
+};
+
+export interface HistoryPoint { time: string; price: number }
+
+export async function getHistory(symbol: string): Promise<HistoryPoint[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    if (HISTORY_CRYPTO_SYMBOLS.has(symbol)) {
+      const pair = `${symbol.replace(/USD$/, '')}USDT`;
+      const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1h&limit=24`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Binance history returned ${response.status}`);
+      const data = await response.json();
+      return data.map((c: any) => ({ time: new Date(c[0]).toISOString(), price: Number(c[4]) })).filter((p: HistoryPoint) => Number.isFinite(p.price));
+    }
+
+    const instrument = HISTORY_OANDA_MAP[symbol] ?? (symbol.length === 6 ? `${symbol.slice(0, 3)}_${symbol.slice(3)}` : null);
+    if (!instrument) throw new Error('Unsupported history symbol');
+    const apiKey = process.env.OANDA_API_KEY;
+    if (!apiKey) throw new Error('OANDA API key is not configured');
+    const response = await fetch(`${oandaBaseUrl()}/v3/instruments/${instrument}/candles?count=24&price=M&granularity=H1`, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`OANDA history returned ${response.status}`);
+    const data = await response.json();
+    return (data.candles ?? []).map((c: any) => ({ time: c.time, price: Number(c.mid?.c) })).filter((p: HistoryPoint) => Number.isFinite(p.price));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function readKnowledgeContext(maxCharsPerFile = 1000): Promise<string> {
   let knowledgeContext = '';
   try {
