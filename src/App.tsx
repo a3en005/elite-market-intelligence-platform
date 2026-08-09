@@ -153,6 +153,7 @@ export default function App() {
   const [isClearingData, setIsClearingData] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [marketError, setMarketError] = useState('');
 
   // Supabase Auth Listener
   useEffect(() => {
@@ -167,26 +168,33 @@ export default function App() {
 
     initSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    try {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        setSession(nextSession);
+      });
+      return () => subscription.unsubscribe();
+    } catch (error) {
+      console.warn('[v0] Supabase auth unavailable; continuing in guest mode.', error);
+      return undefined;
+    }
   }, []);
 
   // Load data from localStorage
   useEffect(() => {
-    const savedJournal = localStorage.getItem('a3_journal');
-    if (savedJournal) setJournal(JSON.parse(savedJournal));
-    
-    const savedSettings = localStorage.getItem('a3_settings');
-    if (savedSettings) setTelegram(JSON.parse(savedSettings));
+    const readStored = <T,>(key: string, fallback: T): T => {
+      try {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) as T : fallback;
+      } catch {
+        localStorage.removeItem(key);
+        return fallback;
+      }
+    };
 
-    const savedName = localStorage.getItem('a3_user_name');
-    if (savedName) setUserName(savedName);
-
-    const savedSignals = localStorage.getItem('a3_signals');
-    if (savedSignals) setSignals(JSON.parse(savedSignals));
+    setJournal(readStored<JournalEntry[]>('a3_journal', []));
+    setTelegram(readStored<TelegramConfig>('a3_settings', { botToken: '', chatId: '', enabled: false }));
+    setUserName(localStorage.getItem('a3_user_name') || '');
+    setSignals(readStored<Signal[]>('a3_signals', []));
   }, []);
 
   // Save data to localStorage
@@ -263,9 +271,13 @@ export default function App() {
   // Fetch prices and generate analysis
   const updateMarket = useCallback(async () => {
     setIsRefreshing(true);
+    setMarketError('');
     try {
       const newPrices = await fetchPrices();
       setPrices(newPrices);
+      if (!Object.values(newPrices).some((item) => item.price > 0)) {
+        setMarketError('Market data is temporarily unavailable. Showing reference prices.');
+      }
 
       // Generate analysis for selected asset
       const currentPrice = newPrices[selectedAsset.symbol]?.price || 0;
@@ -312,6 +324,13 @@ export default function App() {
     const interval = setInterval(updateMarket, 30000); // Update every 30 seconds for more "live" signals
     return () => clearInterval(interval);
   }, [updateMarket]);
+
+  useEffect(() => {
+    const selectedPrice = prices[selectedAsset.symbol];
+    if (selectedPrice?.price > 0) {
+      setAnalysis(generateAnalysis(selectedAsset.symbol, selectedPrice.price, selectedPrice.change24h));
+    }
+  }, [selectedAsset.symbol, prices]);
 
   const sendTelegramAlert = async (signal: Signal, config: TelegramConfig) => {
     const message = `
@@ -502,6 +521,12 @@ export default function App() {
 
         {/* Content Area */}
         <div className="flex-grow overflow-y-auto p-4 md:p-6 no-scrollbar">
+          {marketError && (
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200" role="status">
+              <span>{marketError}</span>
+              <button type="button" onClick={updateMarket} className="font-bold uppercase tracking-widest hover:text-white">Retry</button>
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

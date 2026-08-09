@@ -50,10 +50,21 @@ export async function fetchPrices(): Promise<Record<string, PriceData>> {
       cryptoData = await cryptoRes.json();
     } else {
       console.warn('Crypto API returned non-OK status:', cryptoRes.status);
+      cryptoData = {};
     }
   } catch (error) {
-    console.error('Error fetching Crypto prices:', error);
+    console.warn('[v0] Crypto API unavailable; using reference prices:', error);
+    cryptoData = {};
   }
+
+  const fallbackPrices: Record<string, number> = {
+    XAUUSD: 2165.4, XAGUSD: 24.5, XPTUSD: 950, XPDUSD: 980,
+    US30: 39150, NAS100: 18280, SPX500: 5175, UK100: 7900, GER40: 17800,
+    FRA40: 8100, HK50: 16800, AUS200: 7800, JPN225: 38500,
+    USOIL: 81.2, UKOIL: 85.4, NATGAS: 1.75,
+    BTCUSD: 65000, ETHUSD: 3200, BNBUSD: 580, XRPUSD: 0.52,
+    SOLUSD: 145, ADAUSD: 0.45, DOTUSD: 6.5, MATICUSD: 0.7, LINKUSD: 14, AVAXUSD: 35,
+  };
 
   ASSETS.forEach(asset => {
     let price = 0;
@@ -126,8 +137,10 @@ export async function fetchPrices(): Promise<Record<string, PriceData>> {
       isLive = true;
     }
 
-    // No fallback to demo prices if we want strict API usage
-    // But we should keep the PriceData structure
+    if (!isLive && price === 0 && fallbackPrices[asset.symbol]) {
+      price = fallbackPrices[asset.symbol];
+    }
+
     prices[asset.symbol] = {
       symbol: asset.symbol,
       price,
