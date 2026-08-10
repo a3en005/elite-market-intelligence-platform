@@ -4,13 +4,20 @@ import { ASSETS } from '../constants';
 const FX_API = '/api/mkt/fx';
 const CRYPTO_API = '/api/mkt/crypto';
 
+function freshUrl(url: string) {
+  return `${url}?t=${Date.now()}`;
+}
+
 async function fetchWithRetry(url: string, retries = 2, delay = 1000): Promise<Response> {
   for (let i = 0; i < retries; i++) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
     try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
-      const response = await fetch(url, { signal: controller.signal });
-      window.clearTimeout(timeoutId);
+      const response = await fetch(freshUrl(url), {
+        signal: controller.signal,
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
       if (response.ok) return response;
       if (response.status === 429) { // Rate limited
         await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
@@ -20,6 +27,8 @@ async function fetchWithRetry(url: string, retries = 2, delay = 1000): Promise<R
     } catch (err) {
       if (i === retries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, delay));
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
   throw new Error(`Failed to fetch ${url} after ${retries} retries`);
@@ -35,7 +44,10 @@ export async function fetchPrices(): Promise<Record<string, PriceData>> {
     const fxRes = await fetchWithRetry(FX_API);
     if (fxRes.ok) {
       const fxJson = await fxRes.json();
-      rates = fxJson.rates || fxJson;
+      const nextRates = fxJson.rates || fxJson;
+      if (nextRates && typeof nextRates === 'object' && Object.values(nextRates).some((value) => Number.isFinite(Number(value)))) {
+        rates = nextRates;
+      }
     } else {
       console.warn('Forex API returned non-OK status:', fxRes.status);
     }
@@ -47,7 +59,10 @@ export async function fetchPrices(): Promise<Record<string, PriceData>> {
   try {
     const cryptoRes = await fetchWithRetry(CRYPTO_API);
     if (cryptoRes.ok) {
-      cryptoData = await cryptoRes.json();
+      const nextCrypto = await cryptoRes.json();
+      if (nextCrypto && typeof nextCrypto === 'object') {
+        cryptoData = nextCrypto;
+      }
     } else {
       console.warn('Crypto API returned non-OK status:', cryptoRes.status);
       cryptoData = {};
@@ -170,50 +185,42 @@ function getDemoPrice(symbol: string): number {
 
 export function setupPriceWebSocket(onUpdate: (updates: any[]) => void) {
   let stopped = false;
-  let socket: WebSocket | null = null;
+  let polling = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
   const poll = async () => {
+    if (stopped || polling || document.visibilityState === 'hidden') return;
+    polling = true;
     try {
       const prices = await fetchPrices();
       if (stopped) return;
-      onUpdate(Object.values(prices).filter((item) => item.isLive).map((item) => ({
+      onUpdate(Object.values(prices).map((item) => ({
         symbol: item.symbol,
         price: item.price,
         change: item.change24h,
+        isLive: item.isLive,
         timestamp: Date.now(),
       })));
     } catch (error) {
       console.warn('[v0] Price polling failed:', error);
+    } finally {
+      polling = false;
     }
   };
 
-  const startPolling = () => {
-    if (!pollTimer) pollTimer = setInterval(poll, 15_000);
-  };
+  void poll();
+  pollTimer = setInterval(poll, 10_000);
 
-  try {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    socket = new WebSocket(`${protocol}//${window.location.host}`);
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'PRICE_UPDATE') onUpdate(message.data);
-      } catch (error) {
-        console.warn('[v0] Invalid price update:', error);
-      }
-    };
-    socket.onerror = startPolling;
-    socket.onclose = startPolling;
-  } catch {
-    startPolling();
-  }
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') void poll();
+  };
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   return {
     close() {
       stopped = true;
       if (pollTimer) clearInterval(pollTimer);
-      socket?.close();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     },
   };
 }

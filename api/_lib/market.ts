@@ -53,6 +53,7 @@ export async function getForexRates(): Promise<ForexResult> {
 
       const response = await fetch(`${baseUrl}/v3/accounts/${accountId}/pricing?instruments=${instruments}`, {
         signal: controller.signal,
+        cache: 'no-store',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
@@ -145,7 +146,7 @@ export async function getCryptoTickers(): Promise<Record<string, { usd: number; 
   try {
     const response = await fetch(
       `https://api.binance.com/api/v3/ticker/24hr?symbols=${JSON.stringify(CRYPTO_SYMBOLS)}`,
-      { signal: controller.signal, headers },
+      { signal: controller.signal, cache: 'no-store', headers },
     );
     if (!response.ok) throw new Error(`Binance returned ${response.status}`);
 

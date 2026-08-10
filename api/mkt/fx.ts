@@ -3,6 +3,7 @@ import { getForexRates } from '../_lib/market';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   try {
     const data = await getForexRates();
     return res.status(200).json({ ...data, date: new Date().toISOString().slice(0, 10) });

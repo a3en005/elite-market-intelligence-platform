@@ -331,8 +331,9 @@ async function startServer() {
 
   // Proxy for Forex API
   app.get('/api/mkt/fx', async (req, res) => {
+    res.set('Cache-Control', 'no-store, max-age=0');
     const now = Date.now();
-    if (cache.fx.data && (now - cache.fx.timestamp < CACHE_DURATION)) {
+    if (cache.fx.data && (now - cache.fx.timestamp < Math.min(CACHE_DURATION, 5000))) {
       return res.json(cache.fx.data);
     }
 
@@ -427,8 +428,9 @@ async function startServer() {
 
   // Proxy for Crypto API (Binance)
   app.get('/api/mkt/crypto', async (req, res) => {
+    res.set('Cache-Control', 'no-store, max-age=0');
     const now = Date.now();
-    if (cache.crypto.data && (now - cache.crypto.timestamp < CACHE_DURATION)) {
+    if (cache.crypto.data && (now - cache.crypto.timestamp < Math.min(CACHE_DURATION, 5000))) {
       return res.json(cache.crypto.data);
     }
     try {
