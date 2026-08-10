@@ -1,0 +1,12 @@
+# Project runtime requirements
+# JavaScript dependencies are declared in package.json and pnpm-lock.yaml.
+# This file documents the external market and auth services used by the app.
+
+# Runtime APIs
+binance-public-api
+OANDA REST API
+Supabase Auth
+
+# Install JavaScript dependencies with:
+# pnpm install --frozen-lockfile
+# or npm install

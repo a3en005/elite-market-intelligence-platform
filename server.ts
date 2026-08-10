@@ -16,9 +16,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  process.on('uncaughtException', (error) => {
+    console.error('[v0] Uncaught server exception:', error);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[v0] Unhandled server rejection:', reason);
+  });
+
   const app = express();
   const server = createServer(app);
   const requestedPort = Number(process.env.PORT) || 3000;
+  const viteHmrPort = Number(process.env.VITE_HMR_PORT) || 0;
   const fallbackPorts = [3000, 3001, 3002, 3003, 4173, 5173, 8080];
   const candidatePorts = [...new Set([requestedPort, ...fallbackPorts])];
 
@@ -55,14 +63,12 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
+    res.json({
+      status: 'ok',
       timestamp: new Date().toISOString(),
-      config: {
-        oanda: !!process.env.OANDA_API_KEY && !!process.env.OANDA_ACCOUNT_ID,
-        oanda_env: process.env.OANDA_ENV || 'practice',
-        binance: !!process.env.BINANCE_API_KEY
-      }
+      port: Number(process.env.PORT) || null,
+      node: process.version,
+      environment: process.env.NODE_ENV || 'development',
     });
   });
 
@@ -549,7 +555,10 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: viteHmrPort === 0 ? true : { port: viteHmrPort },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

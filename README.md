@@ -54,3 +54,9 @@ A professional-grade, real-time financial market terminal designed for high-perf
 -> ## 🤖 **AI CHART ANALYSIS**
 
 Built by A3EN with ❤️ for the trading community.
+
+## Local development
+
+Install JavaScript dependencies with `pnpm install --frozen-lockfile` or `npm install`, then start the app with `pnpm run dev`. The server tries the requested `PORT` first and automatically falls back through `3000`, `3001`, `3002`, `3003`, `4173`, `5173`, and `8080` if a port is occupied. Set `VITE_HMR_PORT=0` to let Vite select an available HMR port, which avoids sandbox 410/unreachable failures caused by a stale HMR port.
+
+See `.env.example` for runtime configuration and `requirements.txt` for the external service requirements.
