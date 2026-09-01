@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -28,13 +28,13 @@ async function startServer() {
   const wss = new WebSocketServer({ server });
   const clients = new Set<WebSocket>();
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: WebSocket) => {
     clients.add(ws);
     console.log('New WebSocket client connected');
     ws.on('close', () => clients.delete(ws));
   });
 
-  const broadcast = (data: any) => {
+  const broadcast = (data: Record<string, unknown>) => {
     const message = JSON.stringify(data);
     clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -44,7 +44,7 @@ async function startServer() {
   };
 
   // Health check
-  app.get('/api/health', (req, res) => {
+  app.get('/api/health', (req: Request, res: Response) => {
     res.json({ 
       status: 'ok', 
       timestamp: new Date().toISOString(),
@@ -57,7 +57,7 @@ async function startServer() {
   });
 
   // Knowledge Base & Intelligence API
-  app.get('/api/intel', async (req, res) => {
+  app.get('/api/intel', async (req: Request, res: Response) => {
     try {
       const fs = await import('fs/promises');
       const knowledgeDir = path.join(process.cwd(), 'knowledge');
@@ -104,7 +104,7 @@ async function startServer() {
   });
 
   // AI Chart Analysis (server-side so the Gemini API key is never exposed to the browser)
-  app.post('/api/analyze', async (req, res) => {
+  app.post('/api/analyze', async (req: Request, res: Response) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(503).json({ error: 'AI analysis is not configured. Set GEMINI_API_KEY on the server.' });
@@ -301,7 +301,7 @@ async function startServer() {
   }
 
   // Proxy for Forex API
-  app.get('/api/mkt/fx', async (req, res) => {
+  app.get('/api/mkt/fx', async (req: Request, res: Response) => {
     const now = Date.now();
     if (cache.fx.data && (now - cache.fx.timestamp < CACHE_DURATION)) {
       return res.json(cache.fx.data);
@@ -325,7 +325,7 @@ async function startServer() {
   });
 
   // Historical Data Endpoint
-  app.get('/api/mkt/history/:symbol', async (req, res) => {
+  app.get('/api/mkt/history/:symbol', async (req: Request, res: Response) => {
     const { symbol } = req.params;
     const isCrypto = ['BTCUSD', 'ETHUSD', 'BNBUSD', 'XRPUSD', 'SOLUSD', 'ADAUSD', 'DOTUSD', 'MATICUSD', 'LINKUSD', 'AVAXUSD'].includes(symbol);
     
@@ -393,7 +393,7 @@ async function startServer() {
   });
 
   // Proxy for Crypto API (Binance)
-  app.get('/api/mkt/crypto', async (req, res) => {
+  app.get('/api/mkt/crypto', async (req: Request, res: Response) => {
     const now = Date.now();
     if (cache.crypto.data && (now - cache.crypto.timestamp < CACHE_DURATION)) {
       return res.json(cache.crypto.data);
@@ -614,7 +614,7 @@ async function startServer() {
     app.use(express.static(distPath));
     // SPA fallback for client-side routing. Unknown /api routes should 404
     // rather than return the HTML shell.
-    app.get('*', (req, res) => {
+    app.get('*', (req: Request, res: Response) => {
       if (req.path.startsWith('/api')) {
         return res.status(404).json({ error: 'Not found' });
       }
