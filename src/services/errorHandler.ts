@@ -18,7 +18,7 @@ export enum ErrorType {
 export interface APIError extends Error {
   type: ErrorType;
   statusCode?: number;
-  source: 'BINANCE' | 'OANDA' | 'EXTERNAL' | 'UNKNOWN';
+  source: 'BINANCE' | 'OANDA' | 'EXTERNAL' | 'UNKNOWN' | string;
   timestamp: Date;
   retryable: boolean;
   details?: Record<string, unknown>;
@@ -30,7 +30,7 @@ export interface APIError extends Error {
 export function categorizeError(
   error: unknown,
   statusCode?: number,
-  source: 'BINANCE' | 'OANDA' | 'EXTERNAL' = 'UNKNOWN',
+  source: 'BINANCE' | 'OANDA' | 'EXTERNAL' | 'UNKNOWN' | string = 'UNKNOWN',
 ): APIError {
   let type = ErrorType.UNKNOWN;
   let retryable = false;
